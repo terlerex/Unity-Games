@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 
+namespace Portfolio 
+{
     public enum FireMode {Semi, Burst, Auto}
 
 public class Weapon : MonoBehaviour
@@ -14,15 +16,18 @@ public class Weapon : MonoBehaviour
     
 
     [Header("Ammo and Reloading")]
-    public int maxAmmo = 30;
-    private int currentAmmo;
+    public int maxMagAmmo = 30;
+    public static int currentMagAmmo;
+    public int maxAmmo = 360;
+    public static int currentAmmo;
+    public int currentOffestAmmo;
     public float reloadTime = 3f;
-    public int AmmoBox = 4;
-    public int AmmoPerBox;
+
     
 
     [Header("Weapons Logics")]
-    [SerializeField ]private FireMode _fireMode = FireMode.Semi;
+
+    [SerializeField ]public FireMode _fireMode = FireMode.Semi;
     [SerializeField] private Transform firePoint;
     [SerializeField] [Range(0.1f, 10.5f)] private float fireRate = 1.5f;
     private bool _shootInput = false;
@@ -30,7 +35,6 @@ public class Weapon : MonoBehaviour
     private bool IsReloading = false;
     private float timer;
     private int damage = 5; 
-
     private bool IsAuto = true;
 
     [Header("Particles / UI")]
@@ -39,13 +43,28 @@ public class Weapon : MonoBehaviour
     public GameObject ImpactEffect;
     public GameObject BloodImpactEffect;
     public Text fireModeText;
-    public Text Ammo;
-    public Text AmmoBoxText;
+    public Text AmmoMag;
+    public Text AmmoMax;
+
+
+    public static Weapon instance;
+
+    private void Awake() {
+
+        if(instance != null)
+        {
+            Debug.LogWarning("Il y à plus d'une instance Weapon dans la scène");
+            return;
+        }
+
+        instance = this;
+    }
+
 
     private void Start() 
-    {     
-        AmmoPerBox = maxAmmo;
-        currentAmmo = maxAmmo;
+    {   
+        currentAmmo = PlayerPrefs.GetInt("currentAmmo", maxAmmo);
+        currentMagAmmo = PlayerPrefs.GetInt("currentMagAmmo", maxMagAmmo);
         MuzzleFlash.Stop();
         MuzzleLight.SetActive(false);
     }
@@ -57,16 +76,54 @@ public class Weapon : MonoBehaviour
         if(_bursting) return false;
         return true;
     }
+
     //Can't Shoot
     private void CantShoot()
     {
         Debug.Log("Plus de munitions");
         _shootInput = false;
     }
+    
+
+    //Void Ammo text
+    public void CurrentMagAmmoText()
+    {
+        AmmoMag.text = currentMagAmmo.ToString();
+    }
+    public void CurrentAmmoText()
+    {
+        AmmoMax.text = currentAmmo.ToString();
+    }
+
+    public void CurrentFireMode()
+    {
+         if(IsAuto)
+        {
+            fireModeText.text = "Full-Auto";
+        }
+        else if(_fireMode == FireMode.Burst)
+        {
+            fireModeText.text = "Burst";
+        }
+        else
+        {
+           fireModeText.text = "Semi-Auto"; 
+        }
+    }
 
 
     void Update()
-    {
+    { 
+        //Ammo Text
+        CurrentMagAmmoText();
+        CurrentAmmoText();
+        //FireMode Texte
+        CurrentFireMode();
+
+        //Check ammo not used
+        currentOffestAmmo = maxMagAmmo - currentMagAmmo;
+        
+        
         // Fire mode switch
         switch(_fireMode)
         {
@@ -79,25 +136,9 @@ public class Weapon : MonoBehaviour
             IsAuto = false;
             _shootInput = Input.GetKeyDown(_shootKey);
                 break;
-
-        }
-
-        //Fire mode Text
-        if(IsAuto)
-        {
-            fireModeText.text = "Full-Auto";
-        }
-        else if(_fireMode == FireMode.Burst)
-        {
-            fireModeText.text = "Burst";
-        }
-        else
-        {
-           fireModeText.text = "Semi-Auto"; 
         }
 
         // Reload
-
         if(IsReloading)
             return;
         if(Input.GetKeyDown(KeyCode.R))
@@ -106,18 +147,26 @@ public class Weapon : MonoBehaviour
             return;
         }
 
-        if(currentAmmo <= 0)
+        //Check if ammo or mag is empty
+        if(currentMagAmmo <= 0)
         {
             CantShoot();
         }
+        if(currentAmmo < 0)
+        {
+            CantShoot();       
+        }
+        //Check player is 
+        if(PlayerController.IsCrouching)
+        {
+            CantShoot();
+        }
+        
 
-        Ammo.text = currentAmmo.ToString() + " / " + AmmoPerBox.ToString();
-        AmmoBoxText.text = AmmoBox.ToString() + " AmmoBox";
+
 
         //Shoot
        timer += Time.deltaTime;
-
-
        if(_shootInput)
        {
            if(canShoot())
@@ -132,20 +181,24 @@ public class Weapon : MonoBehaviour
                StartCoroutine(BurstFire());
            }
        }
+       //Change Fire mode
        if(Input.GetKeyDown(_cycleFireModeKey))
        {
            CycleFireMode();
        }
     }
 
-    //Shoot 
+    //Shoot Fonction
     private void FireGun()
     {
-       Debug.DrawRay(firePoint.position, firePoint.right * 100, Color.red, 2f);
-       Ray ray = new Ray(firePoint.position, firePoint.right);
-       RaycastHit hitInfo;
-       MuzzleFlash.Play();
-       currentAmmo--;
+        if(PlayerController.isTurn)  
+        {
+            Debug.DrawRay(firePoint.position, -firePoint.right * 100, Color.red, 2f);
+            Ray ray = new Ray(firePoint.position, -firePoint.right);
+            RaycastHit hitInfo;
+            MuzzleFlash.Play();
+            CinemachineShake.Instance.ShakeCamera(2f, .1f);
+            currentMagAmmo--;
 
        if(Physics.Raycast(ray, out hitInfo, 100))
        {
@@ -159,24 +212,51 @@ public class Weapon : MonoBehaviour
            {
                Instantiate(ImpactEffect, hitInfo.point, Quaternion.LookRotation(hitInfo.normal));
                Debug.Log("Miss");
+               
            }   
        }
+        } 
+        else
+        {
+            Debug.DrawRay(firePoint.position, firePoint.right * 100, Color.red, 2f);
+            Ray ray = new Ray(firePoint.position, firePoint.right);
+            RaycastHit hitInfo;
+            CinemachineShake.Instance.ShakeCamera(2f, .1f);
+            MuzzleFlash.Play();
+            currentMagAmmo--;
+
+       if(Physics.Raycast(ray, out hitInfo, 100))
+       {
+           if(hitInfo.transform.CompareTag("Enemy"))
+           {
+               Debug.Log("Hit : " + damage);
+               hitInfo.collider.GetComponent<EnemyHealth>().TakeDamage(damage);
+               Instantiate(BloodImpactEffect, hitInfo.point, Quaternion.LookRotation(hitInfo.normal));
+           }
+           else
+           {
+               Instantiate(ImpactEffect, hitInfo.point, Quaternion.LookRotation(hitInfo.normal));
+               Debug.Log("Miss");
+               
+           }   
+       }
+        }   
+
 
     }
 
-
-    //Reload
+    //Reload Fonction
     IEnumerator Reload()
     {
         IsReloading = true;
-        AmmoBox--;
         Debug.Log("reloading");
         yield return new WaitForSeconds(reloadTime);
-        currentAmmo = maxAmmo;
+        currentAmmo = currentAmmo - currentOffestAmmo;
+        currentMagAmmo = maxMagAmmo;
         IsReloading = false;
     }
     
-    //Burst
+    //Burst mode
     private IEnumerator BurstFire()
     {
         yield return new WaitForSeconds(fireRate);
@@ -188,6 +268,8 @@ public class Weapon : MonoBehaviour
     }
     //Change Fire mode
     private void CycleFireMode() => _fireMode = ((int) _fireMode < 2) ? _fireMode + 1 : 0;
+
+}
 
 }
 
